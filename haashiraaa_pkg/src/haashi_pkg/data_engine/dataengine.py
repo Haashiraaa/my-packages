@@ -1,20 +1,19 @@
+# dataengine.py
+
 from __future__ import annotations
 
-import sys
 import pandas as pd
 import logging
+import json
 from pandas import DataFrame, Series
 from haashi_pkg.utility.utils import Utility
 from typing import (
     List,
-    Optional,
     Sequence,
     Union,
-    Iterable,
     Any,
     Tuple,
-    Dict,
-    Literal,
+    Dict
 )
 
 # =========================
@@ -28,7 +27,7 @@ ut = Utility(level=logging.INFO)
 
 # =========================
 # Type aliases
-# =========================
+# ========================
 
 Column = Union[str, Sequence[str]]
 AggOp = Union[str, Sequence[str]]
@@ -45,96 +44,14 @@ class DataValidationError(Exception):
 
 class DataEngine:
     """
-    DataEngine provides reusable utilities for loading, inspecting,
-    validating, cleaning, transforming, and summarizing tabular data.
-
-    Philosophy:
-    - Inspection does NOT mutate data
-    - Validation FAILS FAST
-    - Cleaning returns new objects
-    - Conversions are explicit
+    Core utilities for inspecting, validating, cleaning, and transforming tabular data.
+    Inspection is non-mutating; cleaning returns new objects.
     """
 
-    def __init__(self, *file_paths: str, save_path: Optional[str] = None) -> None:
-        self.file_paths: List[str] = list(file_paths)
-        self.save_path: Optional[str] = save_path
+    def __init__(self) -> None:
+        """Initialize engine state"""
         self.dropped_row_count: int = 0
         self.cummulative_missing: int = 0
-
-    # =====================================================
-    # Loading
-    # =====================================================
-
-    def load_csv_single(
-        self,
-        skip_rows: int = 0,
-        header_row: int = 0,
-    ) -> DataFrame:
-        try:
-            return pd.read_csv(
-                self.file_paths[0],
-                sep=None,
-                engine="python",
-                skiprows=skip_rows,
-                header=header_row,
-            )
-        except FileNotFoundError as fnf:
-            print(ut.text["MISSING_FILE"])
-            ut.debug(fnf)
-            sys.exit(1)
-        except Exception as exc:
-            print(ut.text["ERROR"])
-            ut.debug(exc)
-            sys.exit(1)
-
-    def load_csv_many(
-        self,
-        skip_rows: int = 0,
-        header_row: int = 0,
-    ) -> List[DataFrame]:
-        try:
-            return [
-                pd.read_csv(
-                    path,
-                    sep=None,
-                    engine="python",
-                    skiprows=skip_rows,
-                    header=header_row,
-                )
-                for path in self.file_paths
-            ]
-        except FileNotFoundError as fnf:
-            print(ut.text["MISSING_FILE"])
-            ut.debug(fnf)
-            sys.exit(1)
-        except Exception as exc:
-            print(ut.text["ERROR"])
-            ut.debug(exc)
-            sys.exit(1)
-
-    def load_csv_chunk(
-        self,
-        skip_rows: int = 0,
-        header_row: int = 0,
-        chunk_size: int = 1000,
-    ) -> Iterable[DataFrame]:
-        try:
-            return pd.read_csv(
-                self.file_paths[0],
-                sep=None,
-                engine="python",
-                skiprows=skip_rows,
-                header=header_row,
-                chunksize=chunk_size,
-            )
-        except FileNotFoundError as fnf:
-            print(ut.text["MISSING_FILE"])
-            ut.debug(fnf)
-            sys.exit(1)
-        except Exception as exc:
-            print(ut.text["ERROR"])
-            ut.debug(exc)
-            sys.exit(1)
 
     # =====================================================
     # Inspection (NO mutation)
@@ -146,6 +63,7 @@ class DataEngine:
         rows: int = 5,
         verbose: bool = True,
     ) -> None:
+        """Print a quick structural snapshot of the dataframe."""
         if verbose:
             print(df.head(rows))
             print(df.dtypes)
@@ -156,6 +74,7 @@ class DataEngine:
         df: DataFrame,
         columns: Column,
     ) -> Union[int, List[int]]:
+        """Count missing values for one or more columns."""
         if isinstance(columns, (list, tuple)):
             return [int(df[col].isna().sum()) for col in columns]
         return int(df[columns].isna().sum())
@@ -165,6 +84,7 @@ class DataEngine:
         df: DataFrame,
         columns: Column,
     ) -> Union[int, List[int]]:
+        """Count duplicated values within one or more columns."""
         if isinstance(columns, (list, tuple)):
             return [int(df[col].duplicated().sum()) for col in columns]
         return int(df[columns].duplicated().sum())
@@ -173,17 +93,27 @@ class DataEngine:
         self,
         df: DataFrame,
         column: str,
-    ) -> Dict[str, Any]:
+    ) -> str:
+        """Detect common text hygiene issues in a string column."""
         s = df[column].astype(str)
         lowered = s.str.lower()
 
-        return {
+        text_format = {
             "total_values_checked": len(s),
-            "has_leading_trailing_whitespace": s.str.match(r"^\s|\s$").any(),
+            "has_leading_trailing_whitespace": s.str.match(
+                r"^\s|\s$"
+            ).any(),
             "has_multiple_internal_spaces": s.str.contains(r"\s{2,}").any(),
             "has_tabs_or_newlines": s.str.contains(r"[\t\n\r]").any(),
             "has_case_inconsistency": lowered.nunique() < s.nunique(),
         }
+
+        return self.inspect_text_formatting_json(text_format)
+
+    def inspect_text_formatting_json(self, data: Dict[str, Any]) -> str:
+        """Serialize text inspection results as formatted JSON."""
+        cleaned = {k: bool(v) for k, v in data.items()}
+        return json.dumps(cleaned, indent=4)
 
     # =====================================================
     # VALIDATION (ASSET CHECKS)
@@ -194,6 +124,7 @@ class DataEngine:
         df: DataFrame,
         required_columns: Sequence[str],
     ) -> None:
+        """Ensure all required columns exist in the dataframe."""
         missing = [c for c in required_columns if c not in df.columns]
         if missing:
             raise DataValidationError(
@@ -206,6 +137,7 @@ class DataEngine:
         column: str,
         allow_zero: bool = False,
     ) -> None:
+        """Validate numeric column contains only valid non-negative values."""
 
         if column not in df.columns:
             raise DataValidationError(f"Column '{column}' does not exist")
@@ -237,6 +169,7 @@ class DataEngine:
         df: DataFrame,
         column: str,
     ) -> None:
+        """Validate datetime dtype and absence of missing values."""
         if not pd.api.types.is_datetime64_any_dtype(df[column]):
             raise DataValidationError(
                 f"Column '{column}' is not datetime"
@@ -255,6 +188,7 @@ class DataEngine:
         series: Series,
         integer: bool = False,
     ) -> Series:
+        """Coerce mixed-format numeric strings into numeric dtype."""
         cleaned = series.astype(str).str.replace(r"[^0-9.]", "", regex=True)
         if integer:
             return pd.to_numeric(cleaned, errors="coerce").astype("Int64")
@@ -264,6 +198,7 @@ class DataEngine:
         self,
         series: Series,
     ) -> Series:
+        """Convert a series to datetime with flexible parsing."""
         return pd.to_datetime(series, errors="coerce", format="mixed")
 
     # =====================================================
@@ -271,6 +206,7 @@ class DataEngine:
     # =====================================================
 
     def normalize_column_names(self, df: DataFrame) -> DataFrame:
+        """Standardize column names to lowercase and trimmed format."""
         df = df.copy()
         df.columns = df.columns.str.lower().str.strip()
         return df
@@ -280,6 +216,7 @@ class DataEngine:
         series: Series,
         method: str = "lower",
     ) -> Series:
+        """Normalize text casing and whitespace in a series."""
         s = series.astype(str).str.strip()
         if method == "lower":
             return s.str.lower()
@@ -298,6 +235,7 @@ class DataEngine:
         df: DataFrame,
         column: str,
     ) -> MissingStats:
+        """Return total, missing count, and missing percentage."""
         total = len(df)
         missing = int(df[column].isna().sum())
         percent = (missing / total) * 100
@@ -309,14 +247,17 @@ class DataEngine:
         df: DataFrame,
         columns: Sequence[str],
     ) -> DataFrame:
+        """Drop rows missing values in specified columns."""
         mask = df[columns].isna().any(axis=1)
         self.dropped_row_count += int(mask.sum())
         return df.loc[~mask].copy()
 
     def fill_missing_forward(self, series: Series) -> Series:
+        """Forward-fill missing values in a series."""
         return series.ffill()
 
     def fill_missing_backward(self, series: Series) -> Series:
+        """Backward-fill missing values in a series."""
         return series.bfill()
 
     # =====================================================
@@ -330,23 +271,9 @@ class DataEngine:
         group_cols: Union[str, List[str]],
         op: AggOp = "sum",
     ) -> Union[Series, DataFrame]:
+        """Aggregate values by group using one or more operations."""
         gb = df.groupby(group_cols, observed=True)[value_col]
         if isinstance(op, (list, tuple)):
             return gb.agg([o.lower() for o in op])
         return getattr(gb, op.lower())()
-
-    # =====================================================
-    # Saving
-    # =====================================================
-
-    def save_csv(
-        self,
-        df: DataFrame,
-        path: Optional[str] = None,
-    ) -> None:
-        path = path or self.save_path
-        if not path:
-            raise ValueError("No save path provided")
-        df.to_csv(path, index=False)
-        print(f"File saved → {path}")
 

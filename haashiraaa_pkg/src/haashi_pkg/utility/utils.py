@@ -58,6 +58,18 @@ class Utility:
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
 
+    # -------- Error handling methods --------
+
+    def handle_error(self, exc: Exception) -> None:
+        print(self.text["ERROR"])
+        self.debug(exc)
+        sys.exit(1)
+
+    def handle_file_not_found(self, fnf: FileNotFoundError) -> None:
+        print(self.text["MISSING_FILE"])
+        self.debug(fnf)
+        sys.exit(1)
+
     # -------- Logging methods --------
 
     def info(self, message: Any) -> None:

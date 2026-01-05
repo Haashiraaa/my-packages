@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "haashi_pkg"
-version = "0.1.0"
-description = "My first packaged script"
+version = "0.2.0"
+description = "A modular Python toolkit for analytics workflows, including data processing, visualization, and reusable utilities."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
@@ -16,6 +16,7 @@ dependencies = [
     "seaborn", 
     "matplotlib", 
     "numpy",
+    "pyarrow",
 ]
 
 [tool.setuptools]
